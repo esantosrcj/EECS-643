@@ -45,118 +45,196 @@ int32_t line[sizeIndex][nway];
 bool valid[sizeIndex][nway];
 int32_t replace[sizeIndex];
 
-int main (int argc, const char * argv[])
+int main(int argc, const char * argv[])
 {
-	int32_t I,J,K = 0;
+	int32_t I, J, K = 0;
 	int32_t	L = NbrIterations;
 	int32_t X = 0;
-  
-  int tag, index, offset;
+
+	int tag, index, offset;
 
 	int32_t *elemAddr = NULL;
-  int32_t *baseAddr = NULL;
-  int32_t binAddr;
+	int32_t *baseAddr = NULL;
+	int32_t binAddr;
 
 	time_t StartTime, EndTime;
-  
-  int32_t hit = 0;
-  int32_t miss = 0;
-  int32_t *streamAddress;
-  int32_t streamData;
-  int32_t loop = 0;
-  
-  FILE *f = fopen("Cols.bin", "w");
-  FILE *p = fopen("Planes.bin", "w");
-		
+
+	int32_t hit = 0;
+	int32_t miss = 0;
+	int32_t *streamAddress;
+	int32_t streamData;
+	int32_t loop = 0;
+
+	FILE *f = fopen("Cols.bin", "w");
+	FILE *p = fopen("Planes.bin", "w");
+
 	if (f == NULL)
-  {
+	{
 		printf("Error opening file");
 		exit(1);
 	}
 
-  for (int = 0; i <sizeIndex; i++)
-  {
-    for (int j = 0; j < nway; j++)
-    {
-      valid[i][j] = 0;
-    }
-    replace[i] = 0;
-  }
+	for (int = 0; i < sizeIndex; i++)
+	{
+		for (int j = 0; j < nway; j++)
+		{
+			valid[i][j] = 0;
+		}
+		replace[i] = 0;
+	}
 	printf(">>CacheBenchmark: Starting.\n");
-	
-  time(&StartTime);
+
+	time(&StartTime);
 	printf(">>CacheBenchmark: Start: Time = %d \n", StartTime, ctime(&StartTime));
 	printf(">>Size of int: %ld; Size of long int: %ld; size of time_t: %ld\n", sizeof(int), sizeof(long int), sizeof(time_t));
 
-  //
-  // Step through data
-  //
-  baseAddr = &Data[0][0][0];
+	//
+	// Step through data
+	//
+	baseAddr = &Data[0][0][0];
 	for (I = 0; I < NbrPlanes; I++)
-  {
+	{
 		for (J = 0; J < NbrRows; J++)
-    {
+		{
 			for (K = 0; K < NbrCols; K++)
-      {
+			{
 				X = Data[I][J][K];
 			}
 		}
 	}
-  sleep(1);
+	sleep(1);
 
-  //
-  // Cols(outside) index iterating fastest
-  //
-  time(&StartTime);
+	//
+	// Cols(outside) index iterating fastest
+	//
+	time(&StartTime);
 	for (I = 0; I < NbrPlanes; I++)
-  {
+	{
 		for (J = 0; J < NbrRows; J++)
-    {
+		{
 			for (K = 0; K < NbrCols; K++)
-      {
+			{
 				X = Data[I][J][K];
-        Addr[I][J][K] = (&Data[I][J][K] - baseAddr) * 4;
+				Addr[I][J][K] = (&Data[I][J][K] - baseAddr) * 4;
 			}
 		}
 	}
-  time(&EndTime);
+	time(&EndTime);
 
-  fwrite(Addr, 4, I * J * K, f);
+	fwrite(Addr, 4, I * J * K, f);
 	printf(">>>>X: %d\n", X);
 	printf(">>CacheBenchmark: Start: %d; End: %d; Delta: %d\n", StartTime, EndTime, (EndTime - StartTime));
 
-  //
-  // Planes(inside) index iterating fastest
-  //
+	//
+	// Planes(inside) index iterating fastest
+	//
 	sleep(1);
 	time(&StartTime);
 	for (K = 0; K < NbrCols; K++)
-  {
+	{
 		for (J = 0; J < NbrRows; J++)
-    {
+		{
 			for (I = 0; I < NbrPlanes; I++)
-      {
+			{
 				X = Data[I][J][K];
-        Addr2[K][J][I] = (&Data[I][J][K] - baseAddr) * 4;
+				Addr2[K][J][I] = (&Data[I][J][K] - baseAddr) * 4;
 			}
 		}
 	}
-	time (&EndTime);
+	time(&EndTime);
 
-  fwrite(Addr2, 4, I * J * K, p);
+	fwrite(Addr2, 4, I * J * K, p);
 	printf(">>>>X: %d\n", X);
 	printf(">>CacheBenchmark: Start: %d; End: %d; Delta: %d\n", StartTime, EndTime, (EndTime - StartTime));
-  fclose(f);
-  fclose(p);
+	fclose(f);
+	fclose(p);
 
-  f = fopen("Cols.bin", "r");
-  f = fopen("Planes.bin", "r");
+	f = fopen("Cols.bin", "r");
+	f = fopen("Planes.bin", "r");
 
-  int32_t hit = 0;
-  int32_t miss = 0;
-  int32_t *streamAddress;
-  int32_t streamData;
-  int32_t loop = 0;
+	while (fread(&streamAddress, 4, 1, f) != 0)
+	{
+		streamData = (int32_t)streamAddress;
+		// Loop nway amount
+		for (int i = 0; i < nway; i++)
+		{
+			if (valid[(streamData >> NbrDataBits) & MaskIndexBits][i])
+			{
+				// If the tag at the current index is the same
+				if (line[(streamData >> NbrDataBits) & MaskIndexBits][i] == (streamData >> tagOffset) & MaskTagBits)
+				{
+					hit++;
+					break;
+				}
+				// If it misses on nway times
+				else if (i == (nway - 1))
+				{
+					miss++;
+					// FIFO replacement
+					line[(streamData >> NbrDataBits) & MaskIndexBits][replace[i] % nway] = (streamData >> tagOffset) & MaskTagBits;
+					replace[(streamData >> NbrDataBits) & MaskIndexBits] += 1;
+					break;
+				}
+			}
+			else
+			{
+				miss++;
+				valid[((streamData >> NbrDataBits) & MaskIndexBits)][i] = true;
+				line[(streamData >> NbrDataBits) & MaskIndexBits][replace[i] % nway] = (streamData >> tagOffset) & MaskTagBits;
+				replace[(streamData >> NbrDataBits) & MaskIndexBits] += 1;
+				break;
+			}
+		}
+	}
+
+	int32_t sum = hit + miss;
+	printf("%d hit out of %d\n", hit, sum);
+
+	hit = 0;
+	miss = 0;
+
+	for (int i = 0; i < sizeIndex; i++)
+	{
+		for (int j = 0; j < nway; j++)
+		{
+			valid[i][j] = 0;
+		}
+		replace[i] = 0;
+	}
+
+	while (fread(&streamAddress, 4, 1, p) != 0)
+	{
+		streamData = (int32_t)streamAddress;
+		for (int i = 0; i < nway; i++)
+		{
+			if (valid[(streamData >> NbrDataBits) & MaskIndexBits][i])
+			{
+				if (line[(streamData >> NbrDataBits) & MaskIndexBits][i] == (streamData >> tagOffset) & MaskTagBits)
+				{
+					hit++;
+					break;
+				}
+				else if (i == (nway - 1))
+				{
+					miss++;
+					line[(streamData >> NbrDataBits) & MaskIndexBits][replace[i] % nway] = (streamData >> tagOffset) & MaskTagBits;
+					replace[(streamData >> NbrDataBits) & MaskIndexBits] += 1;
+					break;
+				}
+			}
+			else
+			{
+				miss++;
+				valid[((streamData >> NbrDataBits) & MaskIndexBits)][i] = true;
+				line[(streamData >> NbrDataBits) & MaskIndexBits][replace[i] % nway] = (streamData >> tagOffset) & MaskTagBits;
+				replace[(streamData >> NbrDataBits) & MaskIndexBits] += 1;
+				break;
+			}
+		}
+	}
+
+	sum = hit + miss;
+	printf("%d hit out of %d\n", hit, sum);
 
 	return(1);
 }
